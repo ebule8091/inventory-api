@@ -79,6 +79,26 @@ def create_product(
     db.refresh(new_product)
     return new_product
 
+@app.get(
+    "/products/low-stock",
+    response_model=list[ProductResponse],
+)
+def get_low_stock_products(
+    threshold: int = Query(default=5, ge=0),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    statement = (
+        select(Product)
+        .where(Product.quantity <= threshold)
+        .order_by(Product.quantity, Product.id)
+        .offset(offset)
+        .limit(limit)
+    )
+
+    return db.scalars(statement).all()
+
 @app.get("/products/{product_id}", response_model=ProductResponse)
 def get_product(
     product_id: int,

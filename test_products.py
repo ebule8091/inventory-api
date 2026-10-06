@@ -293,3 +293,44 @@ def test_put_cannot_change_quantity(client):
     response = client.get(f"/products/{product_id}")
     assert response.status_code == 200
     assert response.json()["quantity"] == 10
+
+def test_low_stock_report(client):
+    unique_text = uuid4().hex
+    created_ids = {}
+
+    for quantity in [8, 5, 2]:
+        response = client.post(
+            "/products",
+            json={
+                "name": f"Stock Report {unique_text} {quantity}",
+                "sku": f"{unique_text}-{quantity}",
+                "quantity": quantity,
+            },
+        )
+
+        assert response.status_code == 201
+        created_ids[quantity] = response.json()["id"]
+
+    response = client.get(
+        "/products/low-stock",
+        params={"threshold": 5, "limit": 100},
+    )
+
+    assert response.status_code == 200
+    products = response.json()
+
+    # Every returned product must meet the threshold.
+    assert all(product["quantity"] <= 5 for product in products)
+
+    # Results must be ordered by quantity, then ID.
+    actual_order = [
+        (product["quantity"], product["id"])
+        for product in products
+    ]
+    assert actual_order == sorted(actual_order)
+
+    returned_ids = {product["id"] for product in products}
+
+    assert created_ids[2] in returned_ids
+    assert created_ids[5] in returned_ids
+    assert created_ids[8] not in returned_ids

@@ -43,7 +43,7 @@ movement tracking with input validation and automated tests.
 | DELETE | `/products/{product_id}` | Delete a product without stock history |
 | POST | `/products/{product_id}/stock-movements` | Change stock and record the reason |
 | GET | `/products/{product_id}/stock-movements` | Retrieve stock movement history |
-
+| GET | `/products/low-stock` | List products at or below a stock threshold |
 ### Search and Pagination
 
 Example:
