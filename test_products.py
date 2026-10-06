@@ -83,3 +83,23 @@ def test_duplicate_sku_rejected(client):
 
     assert saved_response.status_code == 200
     assert saved_response.json()["name"] == "Original Keyboard"
+
+def test_blank_product_name_rejected(client):
+    response = client.post(
+        "/products",
+        json={
+            "name": "   ",
+            "sku": f"TEST-{uuid4().hex}",
+            "quantity": 10,
+        },
+    )
+
+    assert response.status_code == 422
+
+    errors = response.json()["detail"]
+
+    assert any(
+        error["loc"] == ["body", "name"]
+        and error["type"] == "string_too_short"
+        for error in errors
+    )
