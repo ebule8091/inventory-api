@@ -24,21 +24,27 @@ def test_product_lifecycle(client):
     assert response.status_code == 200
     assert response.json() == created
 
-    # Update
-    updated_data = {**product_data, "quantity": 25}
+    # Update the product name
+    updated_data = {
+        **product_data,
+        "name": "Updated Test Keyboard",
+    }
+
     response = client.put(
         f"/products/{product_id}",
         json=updated_data,
     )
 
     assert response.status_code == 200
-    assert response.json()["quantity"] == 25
+    assert response.json()["name"] == "Updated Test Keyboard"
+    assert response.json()["quantity"] == 10
 
-    # Verify the update through a new request
+    # Verify the saved update through GET
     response = client.get(f"/products/{product_id}")
 
     assert response.status_code == 200
-    assert response.json()["quantity"] == 25
+    assert response.json()["name"] == "Updated Test Keyboard"
+    assert response.json()["quantity"] == 10
 
     # Delete
     response = client.delete(f"/products/{product_id}")
@@ -224,3 +230,66 @@ def test_stock_movements(client):
         movement["product_id"] == product_id
         for movement in history
     )
+
+def test_product_with_stock_history_cannot_be_deleted(client):
+    response = client.post(
+        "/products",
+        json={
+            "name": "Protected Product",
+            "sku": f"TEST-{uuid4().hex}",
+            "quantity": 10,
+        },
+    )
+    assert response.status_code == 201
+    product_id = response.json()["id"]
+
+    response = client.post(
+        f"/products/{product_id}/stock-movements",
+        json={
+            "quantity_change": 5,
+            "reason": "Supplier delivery",
+        },
+    )
+    assert response.status_code == 201
+
+    response = client.delete(f"/products/{product_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Cannot delete a product with stock history"
+    )
+
+    response = client.get(f"/products/{product_id}")
+    assert response.status_code == 200
+    assert response.json()["quantity"] == 15
+
+    response = client.get(
+        f"/products/{product_id}/stock-movements"
+    )
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+def test_put_cannot_change_quantity(client):
+    product_data = {
+        "name": "Quantity Test",
+        "sku": f"TEST-{uuid4().hex}",
+        "quantity": 10,
+    }
+
+    response = client.post("/products", json=product_data)
+    assert response.status_code == 201
+    product_id = response.json()["id"]
+
+    response = client.put(
+        f"/products/{product_id}",
+        json={**product_data, "quantity": 25},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Use stock movements to change quantity"
+    )
+
+    response = client.get(f"/products/{product_id}")
+    assert response.status_code == 200
+    assert response.json()["quantity"] == 10

@@ -100,12 +100,22 @@ def update_product(
     product: ProductCreate,
     db: Session = Depends(get_db),
 ):
-    existing_product = db.get(Product, product_id)
+    existing_product = db.scalar(
+        select(Product)
+        .where(Product.id == product_id)
+        .with_for_update()
+    )
 
     if existing_product is None:
         raise HTTPException(
             status_code=404,
             detail="Product not found",
+        )
+
+    if product.quantity != existing_product.quantity:
+        raise HTTPException(
+            status_code=409,
+            detail="Use stock movements to change quantity",
         )
 
     duplicate = db.scalar(
@@ -123,7 +133,6 @@ def update_product(
 
     existing_product.name = product.name
     existing_product.sku = product.sku
-    existing_product.quantity = product.quantity
 
     try:
         db.commit()
@@ -142,7 +151,11 @@ def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
 ):
-    product = db.get(Product, product_id)
+    product = db.scalar(
+        select(Product)
+        .where(Product.id == product_id)
+        .with_for_update()
+    )
 
     if product is None:
         raise HTTPException(
@@ -150,8 +163,28 @@ def delete_product(
             detail="Product not found",
         )
 
+    movement_id = db.scalar(
+        select(StockMovement.id)
+        .where(StockMovement.product_id == product_id)
+        .limit(1)
+    )
+
+    if movement_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a product with stock history",
+        )
+
     db.delete(product)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a product referenced by other records",
+        )
 
     return {"message": "Product deleted successfully"}
 
