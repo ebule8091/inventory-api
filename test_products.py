@@ -103,3 +103,56 @@ def test_blank_product_name_rejected(client):
         and error["type"] == "string_too_short"
         for error in errors
     )
+
+def test_search_and_pagination(client):
+    unique_text = uuid4().hex
+
+    for number in range(3):
+        response = client.post(
+            "/products",
+            json={
+                "name": f"Keyboard {unique_text} {number}",
+                "sku": f"{unique_text}-{number}",
+                "quantity": 10,
+            },
+        )
+        assert response.status_code == 201
+
+    first_response = client.get(
+        "/products",
+        params={
+            "search": unique_text,
+            "offset": 0,
+            "limit": 2,
+        },
+    )
+
+    assert first_response.status_code == 200
+    first_page = first_response.json()
+
+    assert len(first_page) == 2
+    assert first_page[0]["name"] == f"Keyboard {unique_text} 0"
+    assert first_page[1]["name"] == f"Keyboard {unique_text} 1"
+
+    second_response = client.get(
+        "/products",
+        params={
+            "search": unique_text,
+            "offset": 2,
+            "limit": 2,
+        },
+    )
+
+    assert second_response.status_code == 200
+    second_page = second_response.json()
+
+    assert len(second_page) == 1
+    assert second_page[0]["name"] == f"Keyboard {unique_text} 2"
+
+    no_match_response = client.get(
+        "/products",
+        params={"search": f"missing-{unique_text}"},
+    )
+
+    assert no_match_response.status_code == 200
+    assert no_match_response.json() == []
