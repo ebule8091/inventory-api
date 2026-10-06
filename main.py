@@ -2,9 +2,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from schemas import ProductCreate, ProductResponse
 from database import get_db
-from models import Product
+from models import Product, StockMovement
+from schemas import (
+    ProductCreate,
+    ProductResponse,
+    StockMovementCreate,
+    StockMovementResponse,
+)
+
 
 app = FastAPI(title="Inventory Management API")
 
@@ -148,3 +154,81 @@ def delete_product(
     db.commit()
 
     return {"message": "Product deleted successfully"}
+
+@app.post(
+    "/products/{product_id}/stock-movements",
+    response_model=ProductResponse,
+    status_code=201,
+)
+def create_stock_movement(
+    product_id: int,
+    movement: StockMovementCreate,
+    db: Session = Depends(get_db),
+):
+    statement = (
+        select(Product)
+        .where(Product.id == product_id)
+        .with_for_update()
+    )
+    product = db.scalar(statement)
+
+    if product is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found",
+        )
+
+    new_quantity = product.quantity + movement.quantity_change
+
+    if new_quantity < 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Insufficient stock",
+        )
+
+    product.quantity = new_quantity
+
+    stock_movement = StockMovement(
+        product_id=product.id,
+        quantity_change=movement.quantity_change,
+        reason=movement.reason,
+    )
+
+    db.add(stock_movement)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    db.refresh(product)
+    return product
+
+@app.get(
+    "/products/{product_id}/stock-movements",
+    response_model=list[StockMovementResponse],
+)
+def get_stock_movements(
+    product_id: int,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    product = db.get(Product, product_id)
+
+    if product is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found",
+        )
+
+    statement = (
+        select(StockMovement)
+        .where(StockMovement.product_id == product_id)
+        .order_by(StockMovement.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    return db.scalars(statement).all()

@@ -156,3 +156,71 @@ def test_search_and_pagination(client):
 
     assert no_match_response.status_code == 200
     assert no_match_response.json() == []
+
+def test_stock_movements(client):
+    response = client.post(
+        "/products",
+        json={
+            "name": "Stock Test Keyboard",
+            "sku": f"TEST-{uuid4().hex}",
+            "quantity": 10,
+        },
+    )
+    assert response.status_code == 201
+    product_id = response.json()["id"]
+
+    movement_url = f"/products/{product_id}/stock-movements"
+
+    # Receive five units: 10 + 5 = 15
+    response = client.post(
+        movement_url,
+        json={
+            "quantity_change": 5,
+            "reason": "Supplier delivery",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["quantity"] == 15
+
+    # Sell three units: 15 - 3 = 12
+    response = client.post(
+        movement_url,
+        json={
+            "quantity_change": -3,
+            "reason": "Customer sale",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["quantity"] == 12
+
+    # Reject a sale larger than the available stock
+    response = client.post(
+        movement_url,
+        json={
+            "quantity_change": -20,
+            "reason": "Excessive sale",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Insufficient stock"
+
+    # Stock must remain unchanged
+    response = client.get(f"/products/{product_id}")
+    assert response.status_code == 200
+    assert response.json()["quantity"] == 12
+
+    # Only the two successful movements should exist
+    response = client.get(movement_url)
+    assert response.status_code == 200
+
+    history = response.json()
+    assert len(history) == 2
+    assert history[0]["quantity_change"] == -3
+    assert history[0]["reason"] == "Customer sale"
+    assert history[1]["quantity_change"] == 5
+    assert history[1]["reason"] == "Supplier delivery"
+
+    assert all(
+        movement["product_id"] == product_id
+        for movement in history
+    )
